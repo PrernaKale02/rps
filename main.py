@@ -26,8 +26,6 @@ last_count = 3
 base_x = 0
 base_y = 0
 
-
-# Load images (IMPORTANT: keep PNGs in same folder)
 rock_img = cv2.imread("rock.png", cv2.IMREAD_UNCHANGED)
 paper_img = cv2.imread("paper.png", cv2.IMREAD_UNCHANGED)
 scissors_img = cv2.imread("scissors.png", cv2.IMREAD_UNCHANGED)
@@ -47,7 +45,6 @@ countdown = 0
 start_time = None
 playing = False
 
-# ---------------- FUNCTIONS ---------------- #
 
 def get_computer_choice():
     return random.choice(["Rock", "Paper", "Scissors"])
@@ -83,17 +80,27 @@ def detect_rps(landmarks):
 
 def overlay_image(bg, overlay, x, y):
     h, w = overlay.shape[:2]
+    bg_h, bg_w = bg.shape[:2]
 
-    # If no alpha channel → just paste normally
+    x = max(0, x)
+    y = max(0, y)
+    if x >= bg_w or y >= bg_h:
+        return bg
+
+    if x + w > bg_w or y + h > bg_h:
+        overlay = overlay[:max(0, bg_h - y), :max(0, bg_w - x)]
+        h, w = overlay.shape[:2]
+
     if overlay.shape[2] == 3:
         bg[y:y+h, x:x+w] = overlay
         return bg
 
-    # If PNG with alpha
-    for i in range(h):
-        for j in range(w):
-            if overlay[i][j][3] != 0:
-                bg[y + i][x + j] = overlay[i][j][:3]
+    alpha = overlay[:, :, 3:4].astype(float) / 255.0
+    alpha_inv = 1.0 - alpha
+    bg_region = bg[y:y+h, x:x+w].astype(float)
+
+    blended = alpha * overlay[:, :, :3].astype(float) + alpha_inv * bg_region
+    bg[y:y+h, x:x+w] = blended.astype(bg.dtype)
 
     return bg
 
@@ -105,7 +112,6 @@ def get_computer_image(move):
     elif move == "Scissors":
         return scissors_img
 
-# ---------------- MAIN LOOP ---------------- #
 
 while True:
     ret, frame = cap.read()
@@ -137,7 +143,6 @@ while True:
 
             gesture = detect_rps(hand_landmarks)
 
-    # ---------------- UI PANELS ---------------- #
 
     overlay = frame.copy()
 
@@ -153,11 +158,10 @@ while True:
     cv2.rectangle(frame, (20, 120), (220, 350), (0, 255, 100), 2)
     cv2.rectangle(frame, (w-220, 120), (w-20, 350), (255, 200, 0), 2)
     
-    # ---------------- COUNTDOWN ---------------- #
 
     if playing:
         elapsed = time.time() - start_time
-        countdown = 3 - int(elapsed)
+        countdown = ROUND_COUNTDOWN - int(elapsed)
         
         # detect countdown change (3 → 2 → 1)
         if countdown != last_count:
@@ -178,7 +182,7 @@ while True:
             cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2)
         
         if countdown > 0:
-            scale = 3 + (0.5 * (3 - countdown))  # zoom effect
+            scale = 3 + (0.5 * (ROUND_COUNTDOWN - countdown))  # zoom effect
 
             text = str(countdown)
             text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 5)[0]
@@ -199,14 +203,15 @@ while True:
                     elif result_text == "Computer Wins 🤖":
                         computer_score += 1
                 else:
+                    player_move = ""
+                    computer_move = ""
                     result_text = "Invalid Gesture!"
 
                 show_result = True
                 result_time = time.time()
 
-            playing = False   # ✅ NOW CORRECT
+            playing = False
 
-    # ---------------- DISPLAY ---------------- #
     
     if show_result:
         # shadow
@@ -231,6 +236,11 @@ while True:
         x = (w - text_size[0]) // 2
 
         cv2.putText(frame, result_text,(x, h//2 + 10),cv2.FONT_HERSHEY_SIMPLEX, 1,(255, 255, 255), 3)
+        if time.time() - result_time >= RESULT_DISPLAY_TIME:
+            show_result = False
+            player_move = ""
+            computer_move = ""
+            result_text = ""
                 
     # YOU
     cv2.putText(frame, "YOU", (40, 60),
@@ -259,20 +269,20 @@ while True:
 
     
 
-    cv2.putText(frame, "Press SPACE to Play | ESC to Exit",(w//2 - 200, h - 10),
+    cv2.putText(frame, "Press SPACE to Play | R to Reset | ESC/Q to Exit",(w//2 - 280, h - 10),
             cv2.FONT_HERSHEY_SIMPLEX, 0.7,(200, 200, 200), 2)
 
-    # ---------------- COMPUTER HAND DISPLAY ---------------- #
 
-    base_x = w - 220
-    base_y = 150
+    player_base_x = 40
+    player_base_y = 150
+    computer_base_x = w - 220
+    computer_base_y = 150
 
     if playing and countdown > 0:
         comp_img = get_computer_image(anim_move) # animation (rock)
         anim_phase += 0.4
         offset_y = int(20 * abs(math.sin(anim_phase)))  # bounce up-down
-        offset_x = int(5 * math.sin(anim_phase)) 
-
+        offset_x = int(5 * math.sin(anim_phase))
     elif computer_move:
         comp_img = get_computer_image(computer_move)  # final move
         offset_x = 0
@@ -282,9 +292,15 @@ while True:
         offset_x = 0
         offset_y = 0
 
+    player_img = get_computer_image(player_move) if player_move else None
+
+    if player_img is not None:
+        player_img = cv2.resize(player_img, (200, 200))
+        frame = overlay_image(frame, player_img, player_base_x, player_base_y)
+
     if comp_img is not None:
         comp_img = cv2.resize(comp_img, (200, 200))
-        frame = overlay_image(frame,comp_img,base_x + offset_x,base_y + offset_y)
+        frame = overlay_image(frame, comp_img, computer_base_x + offset_x, computer_base_y + offset_y)
             
     cv2.imshow("RPS Pro Game", frame)
 
@@ -294,8 +310,17 @@ while True:
         playing = True
         start_time = time.time()
         show_result = False   #  RESET THIS
+        player_move = ""
+        computer_move = ""
+        result_text = ""
 
-    if key == 27:
+    if key == ord('r'):
+        player_score = 0
+        computer_score = 0
+        result_text = ""
+        show_result = False
+
+    if key == 27 or key == ord('q'):
         break
 
 cap.release()
