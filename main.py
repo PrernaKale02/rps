@@ -17,14 +17,14 @@ options = vision.HandLandmarkerOptions(
 detector = vision.HandLandmarker.create_from_options(options)
 
 cap = cv2.VideoCapture(0)
+ROUND_COUNTDOWN = 3
+RESULT_DISPLAY_TIME = 2
 
 result_time = 0
 show_result = False
 anim_move = "Rock"
 anim_phase = 0
 last_count = 3
-base_x = 0
-base_y = 0
 
 rock_img = cv2.imread("rock.png", cv2.IMREAD_UNCHANGED)
 paper_img = cv2.imread("paper.png", cv2.IMREAD_UNCHANGED)
@@ -73,7 +73,7 @@ def detect_rps(landmarks):
         return "Rock"
     elif fingers == [1,1,1,1]:
         return "Paper"
-    elif fingers[0] == 1 and fingers[1] == 1:
+    elif fingers == [1,1,0,0]:
         return "Scissors"
     else:
         return "Unknown"
@@ -91,7 +91,7 @@ def overlay_image(bg, overlay, x, y):
         overlay = overlay[:max(0, bg_h - y), :max(0, bg_w - x)]
         h, w = overlay.shape[:2]
 
-    if overlay.shape[2] == 3:
+    if overlay.shape[2] < 4:
         bg[y:y+h, x:x+w] = overlay
         return bg
 
@@ -139,8 +139,7 @@ while True:
             for lm in hand_landmarks:
                 x = int(lm.x * w)
                 y = int(lm.y * h)
-                cv2.circle(frame, (x, y), 4, (0, 255, 0), -1)
-
+                cv2.circle(frame, (x, y), 5, (0,255,0), -1)
             gesture = detect_rps(hand_landmarks)
 
 
@@ -173,7 +172,7 @@ while True:
         
         # animation move during countdown
         if countdown > 0:
-            anim_move = "Rock"
+            anim_move = random.choice(["Rock","Paper","Scissors"])
         
         cv2.putText(frame, "GET READY!",(w//2 - 150, h//2 - 120),
             cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
