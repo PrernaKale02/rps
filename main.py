@@ -6,8 +6,9 @@ import numpy as np
 import math
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-from PIL import ImageFont, ImageDraw, Image
 
+# Font
+FONT = cv2.FONT_HERSHEY_DUPLEX
 # ---------------- MODEL ---------------- #
 base_options = python.BaseOptions(model_asset_path="hand_landmarker.task")
 options = vision.HandLandmarkerOptions(base_options=base_options, num_hands=1)
@@ -28,12 +29,18 @@ BTN_START_X = (5, 85)
 BTN_RESET_X = (92, 172)
 BTN_EXIT_X = (180, 255)
 
-# Colors (BGR format)
-COLOR_START = (0, 200, 0)    # Green
-COLOR_RESET = (0, 165, 255)  # Orange/Gold
-COLOR_EXIT = (0, 0, 200)     # Red
-COLOR_HOVER = (255, 255, 255) # White glow for hover
-# ---------------- STATE ---------------- #
+# Minimalist Dark Theme Colors (BGR)
+COLOR_BG = (30, 30, 30)         # Dark Gray
+COLOR_PLAYER = (250, 200, 100)  # Soft Light Blue
+COLOR_AI = (100, 100, 250)      # Soft Light Red
+COLOR_TEXT = (240, 240, 240)    # Off-White
+COLOR_TEXT_INV = (20, 20, 20)   # Dark Gray for bright backgrounds
+
+# Button Colors
+COLOR_START = (100, 200, 100)
+COLOR_RESET = (100, 150, 200)
+COLOR_EXIT = (100, 100, 200)
+COLOR_HOVER = (200, 200, 200)
 player_score = 0
 computer_score = 0
 
@@ -50,6 +57,7 @@ result_time = 0
 anim_phase = 0
 last_count = 3
 countdown = 0
+score_updated = False
 
 # ---------------- IMAGES ---------------- #
 rock_img = cv2.imread("rock.png", cv2.IMREAD_UNCHANGED)
@@ -111,28 +119,7 @@ def overlay_image(bg, overlay, x, y):
         )
     return bg
 
-def draw_panel(frame, x1, y1, x2, y2, color, alpha=0.12, radius=24):
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (x1 + radius, y1), (x2 - radius, y2), color, -1)
-    cv2.rectangle(overlay, (x1, y1 + radius), (x2, y2 - radius), color, -1)
-    cv2.circle(overlay, (x1 + radius, y1 + radius), radius, color, -1)
-    cv2.circle(overlay, (x2 - radius, y1 + radius), radius, color, -1)
-    cv2.circle(overlay, (x1 + radius, y2 - radius), radius, color, -1)
-    cv2.circle(overlay, (x2 - radius, y2 - radius), radius, color, -1)
-    return cv2.addWeighted(overlay, alpha, frame, 1-alpha, 0)
-
-def draw_panel_border(frame, x1, y1, x2, y2, color, thickness=2, radius=24):
-    cv2.line(frame, (x1 + radius, y1), (x2 - radius, y1), color, thickness)
-    cv2.line(frame, (x1 + radius, y2), (x2 - radius, y2), color, thickness)
-    cv2.line(frame, (x1, y1 + radius), (x1, y2 - radius), color, thickness)
-    cv2.line(frame, (x2, y1 + radius), (x2, y2 - radius), color, thickness)
-    cv2.circle(frame, (x1 + radius, y1 + radius), radius, color, thickness)
-    cv2.circle(frame, (x2 - radius, y1 + radius), radius, color, thickness)
-    cv2.circle(frame, (x1 + radius, y2 - radius), radius, color, thickness)
-    cv2.circle(frame, (x2 - radius, y2 - radius), radius, color, thickness)
-    return frame
-
-
+# Removed slow PIL and blur rendering functions. Using native cv2 below.
 def get_img(move):
     return {
         "Rock": rock_img,
@@ -176,47 +163,45 @@ while True:
                     player_move = gesture
                     computer_move = get_computer_choice()
                     result_text = decide_winner(player_move, computer_move)
-
-                    if result_text == "You Win":
-                        player_score += 1
-                    elif result_text == "Computer Wins":
-                        computer_score += 1
                 else:
                     result_text = "Invalid Move"
 
                 show_result = True
                 result_time = time.time()
+                score_updated = False
 
             playing = False
 
-    if show_result and time.time() - result_time > RESULT_TIME:
+    if show_result:
+        if time.time() - result_time > 1.0 and not score_updated:
+            if result_text == "You Win":
+                player_score += 1
+            elif result_text == "Computer Wins":
+                computer_score += 1
+            score_updated = True
+
+    if show_result and time.time() - result_time > RESULT_TIME + 1.0:
         show_result = False
         player_move = ""
         computer_move = ""
         result_text = ""
 
-    # ================= PIXEL PERFECT UI ================= #
+    # ================= MINIMAL UI ================= #
+    ui = np.zeros((h, w, 3), dtype=np.uint8)
+    ui[:] = COLOR_BG  # Solid dark background
 
-    ui = 255 * np.ones((h, w, 3), dtype=np.uint8)
-
-    # ---------- SAFE MARGINS ---------- #
-    margin = 60
-    panel_w = 260
-    panel_h = 260
-    top_offset = 120
+    # Layout Consts
+    margin, panel_w, panel_h, top_offset = 60, 260, 260, 120
 
     # ---------- TITLE ---------- #
-    cv2.putText(ui, "ROCK  -  PAPER  -  SCISSOR",
-                (w//2 - 240, 45),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.9, (180, 90, 40), 2, cv2.LINE_AA)
+    cv2.putText(ui, "ROCK  PAPER  SCISSORS", (w//2 - 180, 45), FONT, 1, COLOR_TEXT, 2, cv2.LINE_AA)
+    
+    # Title accent line
+    cv2.line(ui, (w//2 - 190, 65), (w//2 + 190, 65), (100, 100, 100), 1, cv2.LINE_AA)
 
     # ---------- SCORE ---------- #
-    score = f"{computer_score} : {player_score}"
-    cv2.putText(ui, score,
-                (w//2 - 40, 85),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1, (200, 0, 200), 2, cv2.LINE_AA)
+    score = f"{computer_score}   VS   {player_score}"
+    cv2.putText(ui, score, (w//2 - 60, 85), FONT, 0.7, COLOR_TEXT, 1, cv2.LINE_AA)
 
     # ---------- PANEL POSITIONS ---------- #
 
@@ -232,40 +217,17 @@ while True:
     pl_x1 = pl_x2 - panel_w
     pl_y2 = pl_y1 + panel_h
 
-    # ---------- PANEL HEADERS ---------- #
+    # ---------- CLEAN PANELS ---------- #
+    # AI Header
+    cv2.putText(ui, "AI", (ai_x1, ai_y1 - 15), FONT, 0.6, COLOR_AI, 1, cv2.LINE_AA)
+    cv2.rectangle(ui, (ai_x1, ai_y1), (ai_x2, ai_y2), COLOR_AI, 1, cv2.LINE_AA)
 
-    # AI header bar
-    cv2.rectangle(ui, (ai_x1, ai_y1 - 30), (ai_x2, ai_y1),
-                (180, 50, 200), -1)
-
-    cv2.putText(ui, "AI",
-                (ai_x1 + 100, ai_y1 - 8),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                (255,255,255), 2, cv2.LINE_AA)
-
-    # PLAYER header bar
-    cv2.rectangle(ui, (pl_x1, pl_y1 - 30), (pl_x2, pl_y1),
-                (50, 200, 100), -1)
-
-    cv2.putText(ui, "PLAYER",
-                (pl_x1 + 70, pl_y1 - 8),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                (255,255,255), 2, cv2.LINE_AA)
-
-    # ---------- PANEL BORDERS ---------- #
-
-    cv2.rectangle(ui, (ai_x1, ai_y1), (ai_x2, ai_y2),
-                (180, 50, 200), 3)
-
-    cv2.rectangle(ui, (pl_x1, pl_y1), (pl_x2, pl_y2),
-                (50, 200, 100), 3)
+    # PLAYER Header
+    cv2.putText(ui, "PLAYER", (pl_x1, pl_y1 - 15), FONT, 0.6, COLOR_PLAYER, 1, cv2.LINE_AA)
+    cv2.rectangle(ui, (pl_x1, pl_y1), (pl_x2, pl_y2), COLOR_PLAYER, 1, cv2.LINE_AA)
 
     # ---------- CENTER DIVIDER ---------- #
-
-    cv2.line(ui,
-            (w//2, ai_y1),
-            (w//2, ai_y2),
-            (180,180,180), 1)
+    cv2.line(ui, (w//2, ai_y1), (w//2, ai_y2), (60, 60, 60), 1)
 
 
     # ---------- CAMERA INSIDE PLAYER PANEL ---------- #
@@ -290,28 +252,26 @@ while True:
                 elif BTN_EXIT_X[0] < idx_x < BTN_EXIT_X[1]: active_hover = "EXIT"
 
     # Start Button logic
-    color = COLOR_HOVER if active_hover == "START" else COLOR_START
-    cv2.rectangle(resized, (BTN_START_X[0], BTNS_Y1), (BTN_START_X[1], BTNS_Y2), color, -1)
-    cv2.putText(resized, "START", (BTN_START_X[0]+12, BTNS_Y1+23), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0) if active_hover == "START" else (255,255,255), 2)
+    b_color = COLOR_HOVER if active_hover == "START" else COLOR_START
+    cv2.rectangle(resized, (BTN_START_X[0], BTNS_Y1), (BTN_START_X[1], BTNS_Y2), b_color, -1)
+    cv2.putText(resized, "START", (BTN_START_X[0]+12, BTNS_Y1+22), FONT, 0.5, COLOR_TEXT_INV, 1, cv2.LINE_AA)
     if active_hover == "START" and not playing:
         playing, start_time, show_result = True, time.time(), False
         player_move, computer_move, result_text = "", "", ""
 
     # Reset Button logic
-    color = COLOR_HOVER if active_hover == "RESET" else COLOR_RESET
-    cv2.rectangle(resized, (BTN_RESET_X[0], BTNS_Y1), (BTN_RESET_X[1], BTNS_Y2), color, -1)
-    cv2.putText(resized, "RESET", (BTN_RESET_X[0]+12, BTNS_Y1+23), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0) if active_hover == "RESET" else (255,255,255), 2)
+    b_color = COLOR_HOVER if active_hover == "RESET" else COLOR_RESET
+    cv2.rectangle(resized, (BTN_RESET_X[0], BTNS_Y1), (BTN_RESET_X[1], BTNS_Y2), b_color, -1)
+    cv2.putText(resized, "RESET", (BTN_RESET_X[0]+12, BTNS_Y1+22), FONT, 0.5, COLOR_TEXT_INV, 1, cv2.LINE_AA)
     if active_hover == "RESET":
         player_score, computer_score, playing, show_result = 0, 0, False, False
 
     # Exit Button logic
-    color = COLOR_HOVER if active_hover == "EXIT" else COLOR_EXIT
-    cv2.rectangle(resized, (BTN_EXIT_X[0], BTNS_Y1), (BTN_EXIT_X[1], BTNS_Y2), color, -1)
-    cv2.putText(resized, "EXIT", (BTN_EXIT_X[0]+18, BTNS_Y1+23), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0) if active_hover == "EXIT" else (255,255,255), 2)
+    b_color = COLOR_HOVER if active_hover == "EXIT" else COLOR_EXIT
+    cv2.rectangle(resized, (BTN_EXIT_X[0], BTNS_Y1), (BTN_EXIT_X[1], BTNS_Y2), b_color, -1)
+    cv2.putText(resized, "EXIT", (BTN_EXIT_X[0]+18, BTNS_Y1+22), FONT, 0.5, COLOR_TEXT_INV, 1, cv2.LINE_AA)
     if active_hover == "EXIT":
-        cap.release()
-        cv2.destroyAllWindows()
-        exit()
+        cap.release(); cv2.destroyAllWindows(); exit()
 
     # ---------------- HAND DETECTION UI (PRO) ---------------- #
 
@@ -320,60 +280,17 @@ while True:
 
             xs, ys = [], []
 
-            # 🔹 draw joints (clean + small)
             for i, lm in enumerate(hand_landmarks):
-                x = int(lm.x * cam_w)
-                y = int(lm.y * cam_h)
+                x, y = int(lm.x * cam_w), int(lm.y * cam_h)
+                xs.append(x); ys.append(y)
+                cv2.circle(resized, (x, y), 2, COLOR_PLAYER, -1)
 
-                xs.append(x)
-                ys.append(y)
-
-                cv2.circle(resized, (x, y), 3, (0, 255, 255), -1)
-
-            # 🔹 draw connections (like skeleton)
-            connections = [
-                (0,1),(1,2),(2,3),(3,4),
-                (0,5),(5,6),(6,7),(7,8),
-                (0,9),(9,10),(10,11),(11,12),
-                (0,13),(13,14),(14,15),(15,16),
-                (0,17),(17,18),(18,19),(19,20)
-            ]
-
+            # 🔹 draw connections cleanly
+            connections = [(0,1),(1,2),(2,3),(3,4),(0,5),(5,6),(6,7),(7,8),(0,9),(9,10),(10,11),(11,12),(0,13),(13,14),(14,15),(15,16),(0,17),(17,18),(18,19),(19,20)]
             for c in connections:
-                x1 = int(hand_landmarks[c[0]].x * cam_w)
-                y1 = int(hand_landmarks[c[0]].y * cam_h)
-                x2 = int(hand_landmarks[c[1]].x * cam_w)
-                y2 = int(hand_landmarks[c[1]].y * cam_h)
-
-                cv2.line(resized, (x1,y1), (x2,y2),
-                        (255, 255, 255), 1, cv2.LINE_AA)
-
-            # 🔥 LASER BOX
-            x1, y1 = min(xs), min(ys)
-            x2, y2 = max(xs), max(ys)
-
-            # glow
-            cv2.rectangle(resized, (x1-4, y1-4), (x2+4, y2+4),
-                        (255, 0, 255), 2)
-
-            # sharp
-            cv2.rectangle(resized, (x1, y1), (x2, y2),
-                        (255, 0, 255), 1, cv2.LINE_AA)
-
-            # 📍 coordinates
-            cv2.putText(resized,
-                        f"X:{x1} Y:{y1}",
-                        (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, (255, 0, 255), 1, cv2.LINE_AA)
-
-            # 🔹 highlight fingertips
-            tips = [8, 12, 16, 20]
-            for tip in tips:
-                tx = int(hand_landmarks[tip].x * cam_w)
-                ty = int(hand_landmarks[tip].y * cam_h)
-
-                cv2.circle(resized, (tx, ty), 6, (0, 255, 0), -1)
+                x1, y1 = int(hand_landmarks[c[0]].x * cam_w), int(hand_landmarks[c[0]].y * cam_h)
+                x2, y2 = int(hand_landmarks[c[1]].x * cam_w), int(hand_landmarks[c[1]].y * cam_h)
+                cv2.line(resized, (x1,y1), (x2,y2), COLOR_PLAYER, 1, cv2.LINE_AA)
     
     # now place into UI
     ui[pl_y1:pl_y2, pl_x1:pl_x2] = resized
@@ -395,17 +312,9 @@ while True:
     # ---------- COUNTDOWN ---------- #
 
     if playing:
-        if countdown > 0:
-            cv2.putText(ui, str(countdown),
-                        (w//2 - 20, ai_y2 + 60),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1.5, (0,0,255), 3, cv2.LINE_AA)
-
-        elif countdown == 0:
-            cv2.putText(ui, "GO!",
-                        (w//2 - 40, ai_y2 + 60),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1.5, (0,180,0), 3, cv2.LINE_AA)
+        c_text = str(countdown) if countdown > 0 else "GO!"
+        c_color = (0, 0, 255) if countdown > 0 else (0, 255, 0)
+        cv2.putText(ui, c_text, (w//2 - 25, ai_y2 + 50), FONT, 1.5, c_color, 2, cv2.LINE_AA)
 
     # ---------- RESULT ---------- #
 
@@ -420,44 +329,34 @@ while True:
     
     # ---------------- COMPACT RESULT BOX ---------------- #
 
-    if show_result:
+    if show_result and time.time() - result_time > 1.0:
+        # Result text format
+        r_scale = 0.9
+        text_size = cv2.getTextSize(result_text, FONT, r_scale, 2)[0]
+        
+        # Dynamic Box Dimensions
+        pad_x, pad_y = 20, 15
+        box_w = text_size[0] + (pad_x * 2)
+        box_h = text_size[1] + (pad_y * 2)
+        
+        x1_box = (w - box_w) // 2
+        y1_box = (h - box_h) // 2
+        x2_box = x1_box + box_w
+        y2_box = y1_box + box_h
+        
+        # Result text color
+        r_color = (100, 255, 100) if "Win" in result_text else (100, 100, 255)
+        if "Draw" in result_text or "Invalid" in result_text: r_color = COLOR_TEXT
 
-        font = cv2.FONT_HERSHEY_COMPLEX
-        scale = 0.8
-        thickness = 2
+        # Compact Result Box
+        cv2.rectangle(ui, (x1_box, y1_box), (x2_box, y2_box), COLOR_BG, -1)
+        # Result Border
+        cv2.rectangle(ui, (x1_box, y1_box), (x2_box, y2_box), r_color, 1, cv2.LINE_AA)
 
-        # get text size
-        text_size = cv2.getTextSize(result_text, font, scale, thickness)[0]
-
-        # padding
-        pad_x = 20
-        pad_y = 15
-
-        box_w = text_size[0] + pad_x * 2
-        box_h = text_size[1] + pad_y * 2
-
-        # center position
-        x1 = (w - box_w) // 2
-        y1 = (h - box_h) // 2
-        x2 = x1 + box_w
-        y2 = y1 + box_h
-
-        # background
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 255), -1)
-
-        # border
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (200, 0, 200), 2)
-
-        # text
-        text_x = x1 + pad_x
-        text_y = y1 + box_h - pad_y
-
-        cv2.putText(frame, result_text,
-                (text_x, text_y),
-                font,
-                scale,
-                (0, 0, 0),
-                thickness)
+        # Center it
+        tx = x1_box + pad_x
+        ty = y1_box + box_h - pad_y
+        cv2.putText(ui, result_text, (tx, ty), FONT, r_scale, r_color, 1, cv2.LINE_AA)
         
     # ---------- SHOW ---------- #
     cv2.imshow("RPS Game", frame)
