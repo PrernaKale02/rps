@@ -8,17 +8,6 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from PIL import ImageFont, ImageDraw, Image
 
-def draw_text_pil(img, text, pos, size=32, color=(0,0,0)):
-    img_pil = Image.fromarray(img)
-    draw = ImageDraw.Draw(img_pil)
-
-    font = ImageFont.truetype("arial.ttf", size)  # or any .ttf file
-
-    draw.text(pos, text, font=font, fill=color)
-
-    return np.array(img_pil)
-
-
 # ---------------- MODEL ---------------- #
 base_options = python.BaseOptions(model_asset_path="hand_landmarker.task")
 options = vision.HandLandmarkerOptions(base_options=base_options, num_hands=1)
@@ -33,6 +22,17 @@ cv2.setWindowProperty("RPS Game", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
 ROUND_COUNTDOWN = 3
 RESULT_TIME = 2
 
+# Standard button dimensions & positions (within camera panel)
+BTNS_Y1, BTNS_Y2 = 10, 45
+BTN_START_X = (5, 85)
+BTN_RESET_X = (92, 172)
+BTN_EXIT_X = (180, 255)
+
+# Colors (BGR format)
+COLOR_START = (0, 200, 0)    # Green
+COLOR_RESET = (0, 165, 255)  # Orange/Gold
+COLOR_EXIT = (0, 0, 200)     # Red
+COLOR_HOVER = (255, 255, 255) # White glow for hover
 # ---------------- STATE ---------------- #
 player_score = 0
 computer_score = 0
@@ -49,6 +49,7 @@ result_time = 0
 
 anim_phase = 0
 last_count = 3
+countdown = 0
 
 # ---------------- IMAGES ---------------- #
 rock_img = cv2.imread("rock.png", cv2.IMREAD_UNCHANGED)
@@ -81,21 +82,18 @@ def decide_winner(player, computer):
         return "You Win" if computer == "Paper" else "Computer Wins"
 
 def detect_rps(landmarks):
+    """Detects Rock, Paper, or Scissors based on finger positions."""
     fingers = []
-    tips = [8, 12, 16, 20]
+    tips = [8, 12, 16, 20] # Index, Middle, Ring, Pinky
 
     for tip in tips:
+        # If tip is above the lower joint, it's 'up'
         fingers.append(1 if landmarks[tip].y < landmarks[tip-2].y else 0)
 
-    # exact patterns
-    if fingers == [0,0,0,0]:
-        return "Rock"
-    elif fingers == [1,1,1,1]:
-        return "Paper"
-    elif fingers == [1,1,0,0]:
-        return "Scissors"
-    else:
-        return "Unknown"
+    if fingers == [0,0,0,0]: return "Rock"
+    if fingers == [1,1,1,1]: return "Paper"
+    if fingers == [1,1,0,0]: return "Scissors"
+    return "Unknown"
     
     
 def overlay_image(bg, overlay, x, y):
@@ -276,6 +274,44 @@ while True:
     cam_h = pl_y2 - pl_y1
 
     resized = cv2.resize(frame, (cam_w, cam_h))
+    # ---------- BUTTON RENDERING & INTERACTION ---------- #
+    # Draw Buttons & Check Hovers
+    active_hover = None
+    if result.hand_landmarks:
+        for hand_landmarks in result.hand_landmarks:
+            # Map index finger tip (8) to camera panel dimensions
+            idx_x = int(hand_landmarks[8].x * cam_w)
+            idx_y = int(hand_landmarks[8].y * cam_h)
+
+            # Check collision
+            if BTNS_Y1 < idx_y < BTNS_Y2:
+                if BTN_START_X[0] < idx_x < BTN_START_X[1]: active_hover = "START"
+                elif BTN_RESET_X[0] < idx_x < BTN_RESET_X[1]: active_hover = "RESET"
+                elif BTN_EXIT_X[0] < idx_x < BTN_EXIT_X[1]: active_hover = "EXIT"
+
+    # Start Button logic
+    color = COLOR_HOVER if active_hover == "START" else COLOR_START
+    cv2.rectangle(resized, (BTN_START_X[0], BTNS_Y1), (BTN_START_X[1], BTNS_Y2), color, -1)
+    cv2.putText(resized, "START", (BTN_START_X[0]+12, BTNS_Y1+23), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0) if active_hover == "START" else (255,255,255), 2)
+    if active_hover == "START" and not playing:
+        playing, start_time, show_result = True, time.time(), False
+        player_move, computer_move, result_text = "", "", ""
+
+    # Reset Button logic
+    color = COLOR_HOVER if active_hover == "RESET" else COLOR_RESET
+    cv2.rectangle(resized, (BTN_RESET_X[0], BTNS_Y1), (BTN_RESET_X[1], BTNS_Y2), color, -1)
+    cv2.putText(resized, "RESET", (BTN_RESET_X[0]+12, BTNS_Y1+23), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0) if active_hover == "RESET" else (255,255,255), 2)
+    if active_hover == "RESET":
+        player_score, computer_score, playing, show_result = 0, 0, False, False
+
+    # Exit Button logic
+    color = COLOR_HOVER if active_hover == "EXIT" else COLOR_EXIT
+    cv2.rectangle(resized, (BTN_EXIT_X[0], BTNS_Y1), (BTN_EXIT_X[1], BTNS_Y2), color, -1)
+    cv2.putText(resized, "EXIT", (BTN_EXIT_X[0]+18, BTNS_Y1+23), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0) if active_hover == "EXIT" else (255,255,255), 2)
+    if active_hover == "EXIT":
+        cap.release()
+        cv2.destroyAllWindows()
+        exit()
 
     # ---------------- HAND DETECTION UI (PRO) ---------------- #
 
@@ -373,39 +409,11 @@ while True:
 
     # ---------- RESULT ---------- #
 
-    if show_result:
-        # background box
-        cv2.rectangle(frame,
-                    (w//2 - 180, h//2 - 40),
-                    (w//2 + 180, h//2 + 40),
-                    (255, 255, 255), -1)
+    # (Logic moved to show_result block below for neatness)
 
-        cv2.rectangle(frame,
-                    (w//2 - 180, h//2 - 40),
-                    (w//2 + 180, h//2 + 40),
-                    (200, 0, 200), 3)
-
-        # center text
-        text_size = cv2.getTextSize(result_text,
-                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                    1.2, 3)[0]
-
-        x = (w - text_size[0]) // 2
-
-        cv2.putText(frame, result_text,
-                    (x, h//2 + 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.2,
-                    (0, 0, 0),
-                    3)
-
-    # ---------- FOOTER ---------- #
-
-    cv2.putText(ui,
-                "SPACE: Play   |   R: Reset   |   ESC: Exit",
-                (w//2 - 200, h - 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5, (120,120,120), 1, cv2.LINE_AA)
+    # (Footer key guide removed as requested)
+    
+    # (Redundant start logic removed for cleaner code)
 
     # ---------- FINAL FRAME ---------- #
     frame = ui
@@ -456,20 +464,8 @@ while True:
 
     key = cv2.waitKey(1) & 0xFF
 
-    if key == 32 and not playing:
-        playing = True
-        start_time = time.time()
-        show_result = False
-
-        last_count = 3
-        player_move = ""
-        computer_move = ""
-        result_text = ""
-
-    if key == ord('r'):
-        player_score = 0
-        computer_score = 0
-
+    # ---------- VIRTUAL BUTTON LOGIC ---------- #
+    button_hovered = False
     if key == 27:
         break
 
